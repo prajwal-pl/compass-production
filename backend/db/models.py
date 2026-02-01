@@ -44,3 +44,10 @@ class User(Base, TimestampMixin):
     services = relationship("Service", back_populates="owner")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     deployments = relationship("Deployment", back_populates="deployed_by")
+
+# class Service(Base, TimestampMixin):
+#     __tablename__ = "services"
+
+#     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+#     name = Column(String(100), unique=True, nullable=False)
+#     description = Column(Text, nullable=True)
