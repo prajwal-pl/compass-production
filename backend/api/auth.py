@@ -10,6 +10,9 @@ router = APIRouter()
 
 @router.post("/register")
 async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+
+    if not payload.email or not payload.password or not payload.username:
+        raise HTTPException(status_code=400, detail="Neccessary fields are missing")
     
     try: 
         result = await db.execute(select(User).where(User.email == payload.email))
@@ -32,12 +35,26 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/login")
-async def login_user(email: str, password: str):
-    if not email or not password:
+async def login_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+    if not payload.email or not payload.password:
         return {"error": "Email and password are required"}
 
-    # WIP: Add user login logic here
-    return {"message": "User login is a work in progress"}
+    try: 
+        result = await db.execute(select(User).where(User.email == payload.email))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        hashed_input_password = hash_password(payload.password.encode('utf-8'))
+
+        if hashed_input_password != user.hashed_password:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        # WIP: Add logic to generate and return access token here
+        return {"message": "User login successful", "user": user}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/logout")
 async def logout_user():
