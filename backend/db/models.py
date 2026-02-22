@@ -54,8 +54,7 @@ class User(Base, TimestampMixin):
     is_google_auth = Column(Boolean, default=False, nullable=False)
 
     services = relationship("Service", back_populates="owner")
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
-    triggered_deployments = relationship("Deployment", back_populates="triggered_by")
+    triggered_deployments = relationship("Deployment", back_populates="triggered_by_user")
     team = relationship("Team", secondary=user_teams, back_populates="members")
 
 class Team(Base, TimestampMixin):
