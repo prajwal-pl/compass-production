@@ -11,21 +11,25 @@ router = APIRouter()
 @router.post("/register")
 async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
     
-    result = await db.execute(select(User).where(User.email == payload.email))
-    is_existing = result.scalar_one_or_none()
+    try: 
+        result = await db.execute(select(User).where(User.email == payload.email))
+        is_existing = result.scalar_one_or_none()
 
-    if is_existing:
-        raise HTTPException(status_code=409, detail="User with this email already exists")
-    
-    hashed_password = hash_password(payload.password.encode('utf-8'))
+        if is_existing:
+            raise HTTPException(status_code=409, detail="User with this email already exists")
+        
+        hashed_password = hash_password(payload.password.encode('utf-8'))
 
-    new_user = User(email=payload.email, username=payload.username, full_name=payload.full_name, is_google_auth=False, is_superuser=False, hashed_password=hashed_password)
+        new_user = User(email=payload.email, username=payload.username, full_name=payload.full_name, is_google_auth=False, is_superuser=False, hashed_password=hashed_password)
 
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
 
-    return {"message": "User registered successfully", "user": new_user}
+        return {"message": "User registered successfully", "user": new_user}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/login")
 async def login_user(email: str, password: str):
@@ -62,8 +66,3 @@ async def update_user_profile():
 async def delete_user_account():
     # WIP: Add logic to delete user account here
     return {"message": "Delete user account is a work in progress"}
-
-@router.get("/refresh-token")
-async def refresh_token():
-    # WIP: Add logic to refresh token here
-    return {"message": "Refresh token is a work in progress"}
