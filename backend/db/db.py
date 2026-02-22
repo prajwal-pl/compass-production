@@ -1,6 +1,9 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 import os
+import dotenv
+
+dotenv.load_dotenv()  # Load environment variables from .env file
 
 # For PostgreSQL (recommended for Compass)
 DATABASE_URL = os.getenv("DATABASE_URL")

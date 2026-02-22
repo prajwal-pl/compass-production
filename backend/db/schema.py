@@ -5,8 +5,6 @@ from uuid import UUID
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column
-
 class ServiceStatus(str, Enum):
     ACTIVE = "active"
     DEGRADED = "degraded"
@@ -57,10 +55,9 @@ class ServiceCreate(BaseModel):
     description: Optional[str] = None
     repository_url: Optional[str] = None
     tags: List[str] = []
-    metadata: Optional[dict] = None
+    meta_data: Optional[dict] = None
     status: ServiceStatus = ServiceStatus.ACTIVE
     tier: Tier = Tier.TIER_3
-    embedding: Optional[Vector] = None
     language: Optional[str] = None
     framework: Optional[str] = None
     health_check_url: Optional[str] = None
@@ -71,10 +68,9 @@ class ServiceUpdate(BaseModel):
     description: Optional[str] = None
     repository_url: Optional[str] = None
     tags: Optional[List[str]] = None
-    metadata: Optional[dict] = None
+    meta_data: Optional[dict] = None
     status: Optional[ServiceStatus] = None
     tier: Optional[Tier] = None
-    embedding: Optional[Vector] = None
     language: Optional[str] = None
     framework: Optional[str] = None
     tier: Optional[Tier] = None
@@ -85,6 +81,18 @@ class ServiceUpdate(BaseModel):
 class ServiceDelete(BaseModel):
     confirm: bool = Field(..., description="Confirm that you want to delete this service")
     service_id: UUID
+
+class TeamCreate(BaseModel):
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = None
+
+class TeamUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+
+class TeamDelete(BaseModel):
+    confirm: bool = Field(..., description="Confirm that you want to delete this team")
+    team_id: UUID
 
 class DeploymentCreate(BaseModel):
     service_id: UUID
@@ -100,7 +108,7 @@ class DeploymentCreate(BaseModel):
     triggered_type: Optional[str] = None
     rollback_from_id: Optional[UUID] = None
     logs: Optional[str] = None
-    metadata: Optional[dict] = None
+    meta_data: Optional[dict] = None
 
 class DeploymentUpdate(BaseModel):
     environment: Optional[Environment] = None
@@ -115,7 +123,7 @@ class DeploymentUpdate(BaseModel):
     triggered_type: Optional[str] = None
     rollback_from_id: Optional[UUID] = None
     logs: Optional[str] = None
-    metadata: Optional[dict] = None
+    meta_data: Optional[dict] = None
 
 class DeploymentDelete(BaseModel):
     confirm: bool = Field(..., description="Confirm that you want to delete this deployment")
@@ -127,7 +135,6 @@ class DocumentationCreate(BaseModel):
     content: str
     version: Optional[str] = None
     is_ai_generated: bool = False
-    embedding: Optional[Vector] = None
     author_id: Optional[UUID] = None
 
 class DocumentationUpdate(BaseModel):
@@ -135,7 +142,6 @@ class DocumentationUpdate(BaseModel):
     content: Optional[str] = None
     version: Optional[str] = None
     is_ai_generated: Optional[bool] = None
-    embedding: Optional[Vector] = None
     author_id: Optional[UUID] = None
 
 class DocumentationDelete(BaseModel):

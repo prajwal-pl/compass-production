@@ -1,4 +1,4 @@
-from sqlalchemy import (Boolean, Column, Integer, String, ForeignKey, Float, DateTime, Index, Enum, JSON, Text)
+from sqlalchemy import (Boolean, Column, Integer, String, ForeignKey, Float, DateTime, Index, Enum, JSON, Table, Text)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -34,6 +34,13 @@ class TimestampMixin:
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True, server_default=func.now())
 
+user_teams = Table(
+    'user_teams',
+    Base.metadata,
+    Column('user_id', UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    Column('team_id', UUID(as_uuid=True), ForeignKey('teams.id', ondelete='CASCADE'), primary_key=True)
+)
+
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
@@ -42,13 +49,24 @@ class User(Base, TimestampMixin):
     email = Column(String(100), unique=True, nullable=False)
     full_name = Column(String(100), nullable=True)
     hashed_password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, nullable=False)
-    is_superuser = Column(Boolean, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_superuser = Column(Boolean, default=False, nullable=False)
     is_google_auth = Column(Boolean, default=False, nullable=False)
 
     services = relationship("Service", back_populates="owner")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
-    deployments = relationship("Deployment", back_populates="deployed_by")
+    triggered_deployments = relationship("Deployment", back_populates="triggered_by")
+    team = relationship("Team", secondary=user_teams, back_populates="members")
+
+class Team(Base, TimestampMixin):
+    __tablename__ = "teams"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+
+    members = relationship("User", secondary=user_teams, back_populates="team")
+    services = relationship("Service", back_populates="team")
 
 class Service(Base, TimestampMixin):
     __tablename__ = "services"
@@ -58,7 +76,7 @@ class Service(Base, TimestampMixin):
     description = Column(Text, nullable=True)
     repository_url = Column(String(255), nullable=True)
     tags = Column(ARRAY(String), default=[])
-    metadata = Column(JSON, default={})
+    meta_data = Column(JSON, default={})
     status = Column(Enum(ServiceStatus), default=ServiceStatus.ACTIVE, nullable=False)
     embedding = Column(Vector(1536), nullable=True)
     health_check_url = Column(String(500), nullable=True)
@@ -67,15 +85,17 @@ class Service(Base, TimestampMixin):
     version = Column(String(50), nullable=True)
     tier = Column(Enum(Tier), default=Tier.TIER_3, nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=True)
 
     owner = relationship("User", back_populates="services")
     deployments = relationship("Deployment", back_populates="service", cascade="all, delete-orphan")
     documentation = relationship("Documentation", back_populates="service", cascade="all, delete-orphan")
+    team = relationship("Team",  back_populates="services")
 
     __table_args__ = (
-        Index("ix_services_name", "name"),
+
         Index("ix_services_tags", "tags", postgresql_using="gin"),
-        Index("ix_services_team", "team")
+        Index("ix_services_team", "team_id")
     )
 
 class Deployment(Base, TimestampMixin):
@@ -100,9 +120,9 @@ class Deployment(Base, TimestampMixin):
     rollback_from_id = Column(UUID(as_uuid=True), ForeignKey("deployments.id"), nullable=True)
 
     logs = Column(Text, nullable=True)
-    metadata = Column(JSON, default={})
-
+    meta_data = Column(JSON, default={})
     service = relationship("Service", back_populates="deployments")
+    triggered_by_user = relationship("User", back_populates="triggered_deployments")
 
     __table_args__ = (
         Index("ix_deployments_service_env", "service_id", "environment"),

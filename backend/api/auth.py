@@ -1,14 +1,31 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from db.schema import UserCreate
+from sqlalchemy.ext.asyncio import AsyncSession
+from db.db import get_db
+from db.models import User
+from sqlalchemy import select
+from xxhash import xxh64_hexdigest as hash_password
 
 router = APIRouter()
 
 @router.post("/register")
-async def register_user(email: str, password: str):
-    if not email or not password:
-        return {"error": "Email and password are required"}
+async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+    
+    result = await db.execute(select(User).where(User.email == payload.email))
+    is_existing = result.scalar_one_or_none()
 
-    # WIP: Add user registration logic here
-    return {"message": "User registration is a work in progress"}
+    if is_existing:
+        raise HTTPException(status_code=409, detail="User with this email already exists")
+    
+    hashed_password = hash_password(payload.password.encode('utf-8'))
+
+    new_user = User(email=payload.email, username=payload.username, full_name=payload.full_name, is_google_auth=False, is_superuser=False, hashed_password=hashed_password)
+
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    return {"message": "User registered successfully", "user": new_user}
 
 @router.post("/login")
 async def login_user(email: str, password: str):
