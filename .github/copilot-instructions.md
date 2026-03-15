@@ -9,7 +9,7 @@ Compass is an AI-powered Internal Developer Portal (IDP) designed to help engine
 ### Backend
 - **Framework**: FastAPI (Python 3.11+)
 - **Database**: PostgreSQL with pgvector extension (primary + vector search), Redis (caching/queues)
-- **AI**: Claude API (Anthropic) for AI-powered features
+- **AI**: Groq API (inference) + LangGraph (agent orchestration) + sentence-transformers (embeddings)
 - **Authentication**: JWT-based auth with refresh tokens
 - **Background Jobs**: Celery with Redis broker
 
@@ -127,7 +127,7 @@ CREATE EXTENSION IF NOT EXISTS "pgvector";  -- For AI semantic search
 # Backend (.env.local)
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/compass
 REDIS_URL=redis://localhost:6379/0
-ANTHROPIC_API_KEY=sk-ant-...
+GROQ_API_KEY=gsk_...
 JWT_SECRET=your-secret-key
 GITHUB_TOKEN=ghp_...
 
@@ -166,6 +166,31 @@ npm run dev
 - ⏳ Business logic implementation (all routes return WIP responses)
 - ⏳ Frontend development (pending)
 
+## AI Architecture
+
+### Patterns by Endpoint
+
+| Endpoint | Pattern | Framework |
+|----------|---------|-----------|
+| `/ai/explain` | Direct LLM call (no tools) | langchain-groq |
+| `/ai/ask` | RAG (retrieve context → prompt → respond) | LangGraph + langchain-postgres |
+| `/ai/troubleshoot` | Agent with tools (query metrics, logs, deps) | LangGraph |
+| `/ai/suggestions` | RAG + structured output | LangGraph |
+| `/templates/{id}/generate` | Agent with tools (create repo, generate files, configure CI) | LangGraph |
+| `/docs/{id}/generate` | Agent with tools (fetch repo, chunk code, generate, embed) | LangGraph |
+| `/docs/search`, `/search` | Embedding similarity search | langchain-postgres + pgvector |
+
+### Embedding Pipeline
+- **Model**: sentence-transformers (runs locally, no API cost)
+- **Storage**: pgvector extension in PostgreSQL
+- **Flow**: Content → sentence-transformers → vector → pgvector → cosine similarity on query
+
+### Agent Design
+- Agents use LangGraph's `create_react_agent` with Groq as the LLM
+- Tools are defined as `@tool` decorated functions with typed parameters
+- LangGraph handles the observe-think-act loop, tool dispatch, and error recovery
+- Long-running agents (scaffolding, doc generation) use LangGraph checkpointing for state persistence
+
 ## Key Dependencies
 
 ### Backend (Current)
@@ -176,7 +201,10 @@ npm run dev
 - sentry-sdk - Error tracking
 
 ### Backend (To Add)
-- anthropic - Claude AI SDK
+- langchain-core, langchain-groq - LLM interface with Groq
+- langgraph - Agent orchestration (tool use, multi-step workflows)
+- langchain-postgres - pgvector RAG integration
+- sentence-transformers - Local embedding generation for semantic search
 - redis, celery - Caching and background jobs
 - python-jose, passlib - JWT auth
 - PyGithub - GitHub integration
