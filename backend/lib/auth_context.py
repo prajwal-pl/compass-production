@@ -1,11 +1,10 @@
 import os
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException
 from datetime import datetime, timedelta
-from jose import jwt, JWTError
+from jose import jwt
 from fastapi.security import OAuth2PasswordBearer
 from db.db import get_db
 from sqlalchemy.ext.asyncio import AsyncSession

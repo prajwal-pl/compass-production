@@ -4,8 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.db import get_db
 from db.models import User
 from sqlalchemy import select
-from xxhash import xxh64_hexdigest as hash_password
-from lib.auth_context import create_access_token
+from lib.auth_context import hash_password, create_access_token
 
 router = APIRouter()
 
