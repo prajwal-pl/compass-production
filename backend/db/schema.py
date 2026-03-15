@@ -36,7 +36,7 @@ class UserCreate(BaseModel):
     is_google_auth: bool = False
 
 class UserLogin(BaseModel):
-    username: str
+    email: EmailStr
     password: str
 
 class UserUpdate(BaseModel):
