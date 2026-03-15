@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.db import get_db
 from db.models import User
 from sqlalchemy import select
-from lib.auth_context import hash_password, create_access_token
+from lib.auth_context import hash_password, create_access_token, verify_password
 
 router = APIRouter()
 
@@ -39,9 +39,7 @@ async def login_user(payload: UserLogin, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    hashed_input_password = hash_password(payload.password.encode('utf-8'))
-
-    if hashed_input_password != user.hashed_password:
+    if not verify_password(payload.password.encode('utf-8'), user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     serializable_user_id = str(user.id)

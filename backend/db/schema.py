@@ -73,7 +73,6 @@ class ServiceUpdate(BaseModel):
     tier: Optional[Tier] = None
     language: Optional[str] = None
     framework: Optional[str] = None
-    tier: Optional[Tier] = None
     status: Optional[ServiceStatus] = None
     health_check_url: Optional[str] = None
     version: Optional[str] = None
@@ -100,7 +99,6 @@ class DeploymentCreate(BaseModel):
     version: Optional[str] = None
     commit_sha: Optional[str] = None
     commit_message: Optional[str] = None
-    version: Optional[str] = None
     status: DeploymentStatus = DeploymentStatus.PENDING
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
