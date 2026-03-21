@@ -61,7 +61,7 @@ async def reset_password(email: str):
     return {"message": "Password reset is a work in progress"}
 
 @router.get("/profile")
-async def get_user_profile(user_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_user_profile(user_id: str, db: AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
     if not user_id:
         raise HTTPException(status_code=400, detail="User ID is required")
     
@@ -74,9 +74,22 @@ async def get_user_profile(user_id: str, db: AsyncSession = Depends(get_db), cur
     return {"user": user}
 
 @router.put("/profile")
-async def update_user_profile(user_id: str, payload: UserUpdate, db:AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # WIP: Add logic to update user profile here
-    return {"message": "Update user profile is a work in progress"}
+async def update_user_profile(user_id: str, payload: UserUpdate, db:AsyncSession = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    if not user_id or payload is None:
+        raise HTTPException(status_code=400, detail="Necessary fields missing!")
+    
+    if "email" in payload.model_dump(exclude_unset=True):
+        raise HTTPException(status_code=403, detail="Email cannot be changed!")
+    
+    if "password" in payload:
+        current_user.hashed_password = hash_password(payload.password)
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value)
+
+    await db.commit()
+    await db.refresh(current_user)
+    return {"message": "User profile updated successfully", "user": current_user}
 
 @router.delete("/delete-account")
 async def delete_user_account():
