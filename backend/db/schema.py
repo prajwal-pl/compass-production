@@ -1,4 +1,3 @@
-from pgvector import Vector
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional, List, Any
 from uuid import UUID

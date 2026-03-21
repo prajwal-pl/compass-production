@@ -21,12 +21,12 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
 
     new_user = User(email=payload.email, username=payload.username, full_name=payload.full_name, is_google_auth=False, is_superuser=False, hashed_password=hashed_password)
 
-    access_token = create_access_token({"user_id": new_user.id})
-
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
 
+    serializable_user_id = str(new_user.id)
+    access_token = create_access_token({"user_id": serializable_user_id})
     return {"message": "User registered successfully", "user": new_user, "access_token": access_token}
 
 
@@ -55,7 +55,7 @@ async def logout_user():
 @router.post("/reset-password")
 async def reset_password(email: str):
     if not email:
-        return {"error": "Email is required"}
+        raise HTTPException(status_code=400, detail="Email is required")
 
     # WIP: Add password reset logic here
     return {"message": "Password reset is a work in progress"}
