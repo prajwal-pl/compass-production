@@ -3,6 +3,10 @@ from typing import Optional
 
 router = APIRouter()
 
+@router.get("/search")
+async def search_docs(query: str, limit: int = 10):
+    # WIP: Add logic for semantic search across all documentation
+    return {"message": f"Search docs for '{query}' is a work in progress"}
 
 @router.get("/{service_id}")
 async def get_service_docs(service_id: str):
@@ -20,9 +24,3 @@ async def generate_docs(service_id: str):
 async def get_readme(service_id: str):
     # WIP: Add logic to get README.md from repository
     return {"message": f"Get README for service {service_id} is a work in progress"}
-
-
-@router.get("/search")
-async def search_docs(query: str, limit: int = 10):
-    # WIP: Add logic for semantic search across all documentation
-    return {"message": f"Search docs for '{query}' is a work in progress"}

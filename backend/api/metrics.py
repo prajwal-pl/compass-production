@@ -4,6 +4,10 @@ from datetime import datetime
 
 router = APIRouter()
 
+@router.get("/overview")
+async def get_platform_metrics():
+    # WIP: Add logic to get platform-wide metrics
+    return {"message": "Get platform metrics overview is a work in progress"}
 
 @router.get("/{service_id}")
 async def get_service_metrics(
@@ -14,9 +18,3 @@ async def get_service_metrics(
 ):
     # WIP: Add logic to get service metrics
     return {"message": f"Get metrics for service {service_id} is a work in progress"}
-
-
-@router.get("/overview")
-async def get_platform_metrics():
-    # WIP: Add logic to get platform-wide metrics
-    return {"message": "Get platform metrics overview is a work in progress"}
