@@ -38,7 +38,7 @@ def create_access_token(data: dict, expires_delta: int = None):
 def decode_access_token(token: str):
     try:
         payload = jwt.decode(token, auth_settings.JWT_SECRET_KEY, algorithms=[auth_settings.JWT_ALGORITHM])
-        if payload.get("type") != "access" and payload.get("sub") is None:
+        if payload.get("type") != "access" or payload.get("sub") is None:
             raise HTTPException(status_code=401, detail="Invalid token type")
         return payload
     except jwt.ExpiredSignatureError:
@@ -50,6 +50,9 @@ async def fetch_user_from_db(user_id: str, db: AsyncSession = Depends(get_db)):
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
 
     return {"user": user}
 
