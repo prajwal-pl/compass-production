@@ -26,7 +26,7 @@
 
 ### 3) Secure and harden authentication
 - [x] Fix token issuance sequence in register flow (create token only after persisted user id exists).
-- [ ] Ensure get_current_user returns typed User object and handles missing user safely.
+- [x] Ensure get_current_user returns typed User object and handles missing user safely.
 - [ ] Add role-based authorization guards (owner, team member, superuser).
 - [ ] Add integration tests for auth happy path and failure path.
 

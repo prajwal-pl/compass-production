@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from db.schema import UserCreate, UserLogin
+from db.schema import UserCreate, UserLogin, UserUpdate
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.db import get_db
 from db.models import User
 from sqlalchemy import select
-from lib.auth_context import hash_password, create_access_token, verify_password
+from lib.auth_context import get_current_user, hash_password, create_access_token, verify_password
 
 router = APIRouter()
 
@@ -17,7 +17,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
     if is_existing:
         raise HTTPException(status_code=409, detail="User with this email already exists")
     
-    hashed_password = hash_password(payload.password.encode('utf-8'))
+    hashed_password = hash_password(payload.password)
 
     new_user = User(email=payload.email, username=payload.username, full_name=payload.full_name, is_google_auth=False, is_superuser=False, hashed_password=hashed_password)
 
@@ -39,7 +39,7 @@ async def login_user(payload: UserLogin, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    if not verify_password(payload.password.encode('utf-8'), user.hashed_password):
+    if not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     serializable_user_id = str(user.id)
@@ -61,12 +61,20 @@ async def reset_password(email: str):
     return {"message": "Password reset is a work in progress"}
 
 @router.get("/profile")
-async def get_user_profile():
-    # WIP: Add logic to retrieve user profile here
-    return {"message": "Get user profile is a work in progress"}
+async def get_user_profile(user_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID is required")
+    
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"user": user}
 
 @router.put("/profile")
-async def update_user_profile():
+async def update_user_profile(user_id: str, payload: UserUpdate, db:AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     # WIP: Add logic to update user profile here
     return {"message": "Update user profile is a work in progress"}
 

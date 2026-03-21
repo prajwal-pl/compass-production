@@ -31,7 +31,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., max_length=50)
     email: EmailStr
     full_name: Optional[str] = Field(None, max_length=100)
-    password: str = Field(..., min_length=8)
+    password: str
     is_google_auth: bool = False
 
 class UserLogin(BaseModel):
