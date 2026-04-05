@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Optional, List, Any
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 from enum import Enum
@@ -28,24 +28,79 @@ class Tier(str, Enum):
     TIER_3 = "tier-3"
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(..., max_length=50)
     email: EmailStr
     full_name: Optional[str] = Field(None, max_length=100)
-    password: str
-    is_google_auth: bool = False
+    password: str = Field(..., min_length=8, max_length=128)
 
 class UserLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     password: str
 
 class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
+    model_config = ConfigDict(extra="forbid")
+
     full_name: Optional[str] = Field(None, max_length=100)
     password: Optional[str] = Field(None, min_length=8)
-    is_active: Optional[bool] = None
-    is_superuser: Optional[bool] = None
+
+
+class UserPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    email: EmailStr
+    full_name: Optional[str] = None
+    is_active: bool
+    is_superuser: bool
+    is_google_auth: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class AuthResponse(BaseModel):
+    message: str
+    user: UserPublic
+    access_token: str
+
+
+class UserResponse(BaseModel):
+    user: UserPublic
+
+
+class UserMessageResponse(BaseModel):
+    message: str
+    user: UserPublic
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(..., min_length=20)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class PasswordResetTokenResponse(BaseModel):
+    message: str
+    reset_token: str
 
 class UserDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     confirm: bool = Field(..., description="Confirm that you want to delete this user")
     email: EmailStr
 
