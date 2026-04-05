@@ -1,7 +1,9 @@
+import asyncio
 from uuid import uuid4
 
 from lib.auth_context import (
     create_access_token,
+    create_refresh_token,
     create_reset_token,
     decode_reset_token,
     is_access_token_revoked,
@@ -28,6 +30,7 @@ def test_register_user_success(client, make_session, override_db):
     assert body["user"]["email"] == payload["email"]
     assert "hashed_password" not in body["user"]
     assert body["access_token"]
+    assert body["refresh_token"]
 
     assert len(session.added) == 1
     assert session.commit_count == 1
@@ -76,6 +79,57 @@ def test_login_rejects_inactive_user(client, make_session, make_user, override_d
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Inactive user account"
+
+
+def test_login_rate_limit_blocks_excess_attempts(client, make_session, make_user, override_db):
+    existing = make_user(email="rate-limited@example.com", password="CorrectPass123")
+    session = make_session([existing, existing, existing, existing, existing])
+    override_db(session)
+
+    payload = {"email": existing.email, "password": "WrongPass123"}
+
+    for _ in range(5):
+        response = client.post("/auth/login", json=payload)
+        assert response.status_code == 401
+
+    blocked = client.post("/auth/login", json=payload)
+    assert blocked.status_code == 429
+
+
+def test_login_lockout_blocks_account_after_repeated_failures_across_ips(
+    client,
+    make_session,
+    make_user,
+    override_db,
+):
+    existing = make_user(email="account-lockout@example.com", password="CorrectPass123")
+    session = make_session([existing, existing, existing, existing, existing, existing])
+    override_db(session)
+
+    payload = {"email": existing.email, "password": "WrongPass123"}
+
+    for i in range(5):
+        response = client.post(
+            "/auth/login",
+            json=payload,
+            headers={"x-forwarded-for": f"10.0.0.{i + 1}"},
+        )
+        assert response.status_code == 401
+
+    sixth_attempt = client.post(
+        "/auth/login",
+        json=payload,
+        headers={"x-forwarded-for": "10.0.0.99"},
+    )
+    assert sixth_attempt.status_code == 423
+    assert "temporarily locked" in sixth_attempt.json()["detail"]
+
+    locked_attempt = client.post(
+        "/auth/login",
+        json=payload,
+        headers={"x-forwarded-for": "10.0.0.100"},
+    )
+    assert locked_attempt.status_code == 423
 
 
 def test_get_profile_defaults_to_authenticated_user(
@@ -191,7 +245,38 @@ def test_logout_revokes_current_token(
 
     assert response.status_code == 200
     assert response.json()["message"] == "User logout successful"
-    assert is_access_token_revoked(token)
+    assert asyncio.run(is_access_token_revoked(token))
+
+
+def test_refresh_session_rotates_tokens(client, make_session, make_user, override_db):
+    user = make_user()
+    session = make_session([user])
+    override_db(session)
+
+    refresh_token = create_refresh_token(str(user.id))
+    response = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] == "Session refreshed successfully"
+    assert body["access_token"]
+    assert body["refresh_token"]
+    assert body["refresh_token"] != refresh_token
+
+
+def test_refresh_token_reuse_is_rejected(client, make_session, make_user, override_db):
+    user = make_user()
+    session = make_session([user])
+    override_db(session)
+
+    refresh_token = create_refresh_token(str(user.id))
+
+    first_response = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    assert first_response.status_code == 200
+
+    second_response = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    assert second_response.status_code == 401
+    assert second_response.json()["detail"] == "Refresh token has already been used"
 
 
 def test_reset_password_request_returns_token(
@@ -216,6 +301,26 @@ def test_reset_password_request_returns_token(
 
     claims = decode_reset_token(body["reset_token"])
     assert claims["sub"] == str(user.id)
+
+
+def test_reset_password_request_rate_limit_blocks_excess_attempts(
+    client,
+    make_session,
+    make_user,
+    override_db,
+):
+    user = make_user(email="reset-limit@example.com")
+    session = make_session([user, user, user, user, user])
+    override_db(session)
+
+    payload = {"email": user.email}
+
+    for _ in range(5):
+        response = client.post("/auth/reset-password/request", json=payload)
+        assert response.status_code == 200
+
+    blocked = client.post("/auth/reset-password/request", json=payload)
+    assert blocked.status_code == 429
 
 
 def test_reset_password_legacy_endpoint_keeps_compatible_response(
@@ -277,6 +382,31 @@ def test_reset_password_confirm_rejects_same_password(
     assert response.json()["detail"] == "New password must be different"
 
 
+def test_reset_password_confirm_lockout_blocks_repeated_invalid_token_attempts(
+    client,
+    make_session,
+    override_db,
+):
+    session = make_session([])
+    override_db(session)
+
+    payload = {
+        "token": "invalid-reset-token-12345",
+        "new_password": "BrandNewPass123",
+    }
+
+    for _ in range(7):
+        response = client.post("/auth/reset-password/confirm", json=payload)
+        assert response.status_code == 401
+
+    eighth_attempt = client.post("/auth/reset-password/confirm", json=payload)
+    assert eighth_attempt.status_code == 423
+    assert "temporarily locked" in eighth_attempt.json()["detail"]
+
+    locked_attempt = client.post("/auth/reset-password/confirm", json=payload)
+    assert locked_attempt.status_code == 423
+
+
 def test_delete_account_deactivates_user_and_revokes_token(
     client,
     make_session,
@@ -302,7 +432,7 @@ def test_delete_account_deactivates_user_and_revokes_token(
     assert current_user.is_active is False
     assert not verify_password("DeleteMe123", current_user.hashed_password)
     assert session.commit_count == 1
-    assert is_access_token_revoked(token)
+    assert asyncio.run(is_access_token_revoked(token))
 
 
 def test_delete_account_rejects_email_mismatch(

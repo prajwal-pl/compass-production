@@ -66,6 +66,7 @@ class AuthResponse(BaseModel):
     message: str
     user: UserPublic
     access_token: str
+    refresh_token: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -97,6 +98,18 @@ class PasswordResetConfirm(BaseModel):
 class PasswordResetTokenResponse(BaseModel):
     message: str
     reset_token: str
+
+
+class RefreshTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str = Field(..., min_length=20)
+
+
+class LogoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: Optional[str] = Field(default=None, min_length=20)
 
 class UserDelete(BaseModel):
     model_config = ConfigDict(extra="forbid")

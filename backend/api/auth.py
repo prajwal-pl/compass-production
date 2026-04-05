@@ -1,6 +1,6 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,10 +8,12 @@ from db.db import get_db
 from db.models import User
 from db.schema import (
     AuthResponse,
+    LogoutRequest,
+    MessageResponse,
     PasswordResetConfirm,
     PasswordResetRequest,
     PasswordResetTokenResponse,
-    MessageResponse,
+    RefreshTokenRequest,
     UserCreate,
     UserDelete,
     UserLogin,
@@ -20,18 +22,34 @@ from db.schema import (
     UserUpdate,
 )
 from lib.auth_context import (
+    clear_auth_failures,
+    consume_refresh_token_jti,
     create_access_token,
+    create_refresh_token,
     create_reset_token,
+    decode_refresh_token,
     decode_reset_token,
+    enforce_lockout,
+    enforce_rate_limit,
+    fetch_user_from_db,
     get_current_user,
     hash_password,
     oauth2_scheme,
+    register_auth_failure,
     revoke_access_token,
     verify_password,
 )
 
 router = APIRouter()
 PASSWORD_RESET_MESSAGE = "If the account exists, a password reset token has been generated"
+LOGIN_LOCKOUT_SCOPE = "auth_login_account"
+LOGIN_LOCKOUT_THRESHOLD = 6
+LOGIN_LOCKOUT_WINDOW_SECONDS = 3600
+LOGIN_LOCKOUT_DURATION_SECONDS = 900
+RESET_CONFIRM_LOCKOUT_SCOPE = "password_reset_confirm_lockout"
+RESET_CONFIRM_LOCKOUT_THRESHOLD = 8
+RESET_CONFIRM_LOCKOUT_WINDOW_SECONDS = 3600
+RESET_CONFIRM_LOCKOUT_DURATION_SECONDS = 1800
 
 
 def _serialize_user(user: User) -> dict:
@@ -57,6 +75,15 @@ def _parse_user_id(user_id: str) -> UUID:
         return UUID(user_id)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid user ID format")
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
 async def _issue_reset_token_for_email(email: str, db: AsyncSession) -> dict:
@@ -99,55 +126,155 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
 
     serializable_user_id = str(new_user.id)
     access_token = create_access_token({"user_id": serializable_user_id})
+    refresh_token = create_refresh_token(serializable_user_id)
     return {
         "message": "User registered successfully",
         "user": _serialize_user(new_user),
         "access_token": access_token,
+        "refresh_token": refresh_token,
     }
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login_user(payload: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login_user(
+    payload: UserLogin,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    login_identifier = payload.email.lower()
+
+    await enforce_lockout(
+        scope=LOGIN_LOCKOUT_SCOPE,
+        identifier=login_identifier,
+        detail="Account is temporarily locked due to repeated failed login attempts",
+    )
+
+    await enforce_rate_limit(
+        scope="auth_login",
+        identifier=f"{payload.email.lower()}:{_client_ip(request)}",
+        max_attempts=5,
+        window_seconds=900,
+    )
+
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(payload.password, user.hashed_password):
+        is_locked, retry_after = await register_auth_failure(
+            scope=LOGIN_LOCKOUT_SCOPE,
+            identifier=login_identifier,
+            threshold=LOGIN_LOCKOUT_THRESHOLD,
+            failure_window_seconds=LOGIN_LOCKOUT_WINDOW_SECONDS,
+            lockout_seconds=LOGIN_LOCKOUT_DURATION_SECONDS,
+        )
+        if is_locked:
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail="Account is temporarily locked due to repeated failed login attempts",
+                headers={"Retry-After": str(max(1, retry_after))},
+            )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Inactive user account")
 
+    await clear_auth_failures(scope=LOGIN_LOCKOUT_SCOPE, identifier=login_identifier)
+
     serializable_user_id = str(user.id)
 
     access_token = create_access_token({"user_id": serializable_user_id})
+    refresh_token = create_refresh_token(serializable_user_id)
     return {
         "message": "User login successful",
         "user": _serialize_user(user),
         "access_token": access_token,
+        "refresh_token": refresh_token,
     }
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout_user(
+    payload: LogoutRequest | None = None,
     token: str = Depends(oauth2_scheme),
     current_user: User = Depends(get_current_user),
 ):
     _ = current_user
-    revoke_access_token(token)
+
+    if payload and payload.refresh_token:
+        try:
+            refresh_payload = decode_refresh_token(payload.refresh_token)
+            refresh_jti = str(refresh_payload.get("jti"))
+            refresh_exp_ts = int(refresh_payload.get("exp"))
+            await consume_refresh_token_jti(refresh_jti, refresh_exp_ts)
+        except HTTPException:
+            # Logout should still succeed even if optional refresh token is invalid.
+            pass
+
+    await revoke_access_token(token)
     return {"message": "User logout successful"}
+
+
+@router.post("/refresh", response_model=AuthResponse)
+async def refresh_session(
+    payload: RefreshTokenRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    await enforce_rate_limit(
+        scope="auth_refresh",
+        identifier=_client_ip(request),
+        max_attempts=20,
+        window_seconds=900,
+    )
+
+    refresh_payload = decode_refresh_token(payload.refresh_token)
+    refresh_jti = str(refresh_payload.get("jti"))
+    refresh_exp_ts = int(refresh_payload.get("exp"))
+    refresh_sub = str(refresh_payload.get("sub"))
+
+    was_consumed = await consume_refresh_token_jti(refresh_jti, refresh_exp_ts)
+    if not was_consumed:
+        raise HTTPException(status_code=401, detail="Refresh token has already been used")
+
+    user = await fetch_user_from_db(refresh_sub, db)
+    access_token = create_access_token({"user_id": str(user.id)})
+    refresh_token = create_refresh_token(str(user.id))
+
+    return {
+        "message": "Session refreshed successfully",
+        "user": _serialize_user(user),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
 
 
 @router.post("/reset-password/request", response_model=PasswordResetTokenResponse)
 async def request_password_reset(
     payload: PasswordResetRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    await enforce_rate_limit(
+        scope="password_reset_request",
+        identifier=f"{payload.email.lower()}:{_client_ip(request)}",
+        max_attempts=5,
+        window_seconds=3600,
+    )
+
     return await _issue_reset_token_for_email(payload.email, db)
 
 @router.post("/reset-password", response_model=MessageResponse)
 async def reset_password(
     email: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    await enforce_rate_limit(
+        scope="password_reset_request",
+        identifier=f"{email.lower()}:{_client_ip(request)}",
+        max_attempts=5,
+        window_seconds=3600,
+    )
+
     # Compatibility endpoint retained for existing clients.
     await _issue_reset_token_for_email(email, db)
     return {"message": PASSWORD_RESET_MESSAGE}
@@ -156,23 +283,62 @@ async def reset_password(
 @router.post("/reset-password/confirm", response_model=MessageResponse)
 async def confirm_password_reset(
     payload: PasswordResetConfirm,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    token_payload = decode_reset_token(payload.token)
-    target_uuid = _parse_user_id(token_payload.get("sub"))
+    reset_identifier = _client_ip(request)
 
-    result = await db.execute(select(User).where(User.id == target_uuid))
-    user = result.scalar_one_or_none()
+    await enforce_lockout(
+        scope=RESET_CONFIRM_LOCKOUT_SCOPE,
+        identifier=reset_identifier,
+        detail="Password reset is temporarily locked due to repeated failed attempts",
+    )
 
-    if not user or not user.is_active:
-        raise HTTPException(status_code=400, detail="Invalid password reset request")
+    await enforce_rate_limit(
+        scope="password_reset_confirm",
+        identifier=reset_identifier,
+        max_attempts=10,
+        window_seconds=900,
+    )
 
-    if verify_password(payload.new_password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="New password must be different")
+    try:
+        token_payload = decode_reset_token(payload.token)
+        target_uuid = _parse_user_id(token_payload.get("sub"))
+
+        result = await db.execute(select(User).where(User.id == target_uuid))
+        user = result.scalar_one_or_none()
+
+        if not user or not user.is_active:
+            raise HTTPException(status_code=400, detail="Invalid password reset request")
+
+        if verify_password(payload.new_password, user.hashed_password):
+            raise HTTPException(status_code=400, detail="New password must be different")
+    except HTTPException as exc:
+        if exc.detail != "New password must be different":
+            is_locked, retry_after = await register_auth_failure(
+                scope=RESET_CONFIRM_LOCKOUT_SCOPE,
+                identifier=reset_identifier,
+                threshold=RESET_CONFIRM_LOCKOUT_THRESHOLD,
+                failure_window_seconds=RESET_CONFIRM_LOCKOUT_WINDOW_SECONDS,
+                lockout_seconds=RESET_CONFIRM_LOCKOUT_DURATION_SECONDS,
+            )
+            if is_locked:
+                raise HTTPException(
+                    status_code=status.HTTP_423_LOCKED,
+                    detail="Password reset is temporarily locked due to repeated failed attempts",
+                    headers={"Retry-After": str(max(1, retry_after))},
+                )
+        raise
 
     user.hashed_password = hash_password(payload.new_password)
     await db.commit()
     await db.refresh(user)
+
+    await clear_auth_failures(
+        scope=RESET_CONFIRM_LOCKOUT_SCOPE,
+        identifier=reset_identifier,
+    )
+
     return {"message": "Password has been reset successfully"}
 
 @router.get("/profile", response_model=UserResponse)
@@ -248,7 +414,7 @@ async def delete_user_account(
         raise HTTPException(status_code=403, detail="Email does not match the authenticated user")
 
     if not current_user.is_active:
-        revoke_access_token(token)
+        await revoke_access_token(token)
         return {"message": "User account is already deactivated"}
 
     current_user.is_active = False
@@ -256,5 +422,5 @@ async def delete_user_account(
 
     await db.commit()
     await db.refresh(current_user)
-    revoke_access_token(token)
+    await revoke_access_token(token)
     return {"message": "User account deactivated successfully"}

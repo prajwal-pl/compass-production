@@ -5,9 +5,12 @@ import pytest
 from fastapi import HTTPException
 
 from lib.auth_context import (
+    consume_refresh_token_jti,
     create_access_token,
+    create_refresh_token,
     create_reset_token,
     decode_access_token,
+    decode_refresh_token,
     fetch_user_from_db,
     get_current_user,
     is_access_token_revoked,
@@ -51,9 +54,9 @@ def test_fetch_user_from_db_rejects_inactive_user(make_session, make_user):
 def test_get_current_user_rejects_revoked_access_token(make_session, make_user):
     user = make_user()
     access_token = create_access_token({"user_id": str(user.id)})
-    revoke_access_token(access_token)
+    asyncio.run(revoke_access_token(access_token))
 
-    assert is_access_token_revoked(access_token)
+    assert asyncio.run(is_access_token_revoked(access_token))
 
     session = make_session()
 
@@ -61,3 +64,18 @@ def test_get_current_user_rejects_revoked_access_token(make_session, make_user):
         asyncio.run(get_current_user(token=access_token, db=session))
 
     assert exc.value.status_code == 401
+
+
+def test_refresh_token_jti_can_only_be_consumed_once():
+    refresh_token = create_refresh_token(str(uuid4()))
+    payload = decode_refresh_token(refresh_token)
+
+    first_use = asyncio.run(
+        consume_refresh_token_jti(str(payload["jti"]), int(payload["exp"]))
+    )
+    second_use = asyncio.run(
+        consume_refresh_token_jti(str(payload["jti"]), int(payload["exp"]))
+    )
+
+    assert first_use is True
+    assert second_use is False

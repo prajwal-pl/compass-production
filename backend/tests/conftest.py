@@ -1,4 +1,5 @@
 import os
+import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -18,9 +19,9 @@ os.environ.setdefault(
 
 from api.auth import router as auth_router  # noqa: E402
 from db.db import get_db  # noqa: E402
-from db.models import User  # noqa: E402
-from lib import auth_context  # noqa: E402
+from db.models import Deployment, Environment, Service, User  # noqa: E402
 from lib.auth_context import get_current_user, hash_password  # noqa: E402
+from lib.security_store import security_store  # noqa: E402
 
 
 class DummyScalarResult:
@@ -67,9 +68,9 @@ class DummySession:
 
 @pytest.fixture(autouse=True)
 def clear_revoked_tokens():
-    auth_context._revoked_access_tokens.clear()
+    asyncio.run(security_store.clear_test_state())
     yield
-    auth_context._revoked_access_tokens.clear()
+    asyncio.run(security_store.clear_test_state())
 
 
 @pytest.fixture
@@ -109,6 +110,61 @@ def make_user():
         return user
 
     return _make_user
+
+
+@pytest.fixture
+def make_service():
+    def _make_service(
+        *,
+        service_id=None,
+        name=None,
+        owner_id=None,
+        team_id=None,
+        description="Test service",
+    ):
+        now = datetime.now(timezone.utc)
+        service = Service(
+            name=name or f"service-{uuid4().hex[:8]}",
+            description=description,
+            repository_url="https://example.com/repo.git",
+            tags=[],
+            meta_data={},
+            owner_id=owner_id or uuid4(),
+            team_id=team_id,
+        )
+        service.id = service_id or uuid4()
+        service.created_at = now
+        service.updated_at = now
+        return service
+
+    return _make_service
+
+
+@pytest.fixture
+def make_deployment():
+    def _make_deployment(
+        *,
+        deployment_id=None,
+        service_id=None,
+        triggered_by=None,
+        version="1.0.0",
+        commit_sha="a" * 40,
+        environment=Environment.STAGING,
+    ):
+        now = datetime.now(timezone.utc)
+        deployment = Deployment(
+            service_id=service_id or uuid4(),
+            commit_sha=commit_sha,
+            version=version,
+            environment=environment,
+            triggered_by=triggered_by or uuid4(),
+        )
+        deployment.id = deployment_id or uuid4()
+        deployment.created_at = now
+        deployment.updated_at = now
+        return deployment
+
+    return _make_deployment
 
 
 @pytest.fixture
