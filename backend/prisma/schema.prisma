@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+  DEPRECATED
+  MAINTENANCE
+}
+
+enum DeploymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  IN_PROGRESS
+  ROLLED_BACK
+}
+
+enum Environment {
+  PRODUCTION
+  STAGING
+  DEVELOPMENT
+  TESTING
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id        String       @id @default(uuid())
+  email     String       @unique
+  password  String?
+  fullName  String?
+  provider  AuthProvider @default(EMAIL)
+  role      UserRole     @default(MEMBER)
+  services  Services[]
+  teams     Team[]       @relation("TeamMembers")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  members   User[]   @relation("TeamMembers")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Services {
+  id            String          @id @default(uuid())
+  name          String
+  description   String?
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  status        ServiceStatus   @default(ACTIVE)
+  deployments   Deployment[]
+  documentation Documentation[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model Deployment {
+  id            String           @id @default(uuid())
+  commitSha     String
+  version       String
+  commitMessage String
+  environment   Environment
+  status        DeploymentStatus @default(PENDING)
+  rolledBack    Boolean          @default(false)
+  serviceId     String
+  service       Services         @relation(fields: [serviceId], references: [id])
+  startedAt     DateTime         @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+model Documentation {
+  id            String                 @id @default(uuid())
+  serviceId     String
+  service       Services               @relation(fields: [serviceId], references: [id])
+  title         String
+  content       String
+  version       String
+  isAiGenerated Boolean                @default(false)
+  embedding     Unsupported("vector")?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+}
