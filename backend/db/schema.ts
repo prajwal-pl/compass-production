@@ -7,9 +7,9 @@ export const UserRole = pgEnum("user_role", ["OWNER", "ADMIN", "MEMBER"])
 
 export const ServiceStatus = pgEnum("service_status", ["ACTIVE", "INACTIVE", "DEPRECATED", "MAINTENANCE"])
 
-export const Environment = pgEnum("environment", ["DEVELOPMENT", "STAGING", "PRODUCTION"])
+export const Environment = pgEnum("environment", ["PRODUCTION", "STAGING", "DEVELOPMENT", "TESTING"])
 
-export const DeploymentStatus = pgEnum("deployment_status", ["PENDING", "IN_PROGRESS", "SUCCESS", "FAILED", "ROLLED_BACK"])
+export const DeploymentStatus = pgEnum("deployment_status", ["PENDING", "SUCCESS", "FAILED", "IN_PROGRESS", "ROLLED_BACK"])
 
 export const users = pgTable("users", {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -47,8 +47,7 @@ export const deployments = pgTable("deployments", {
     commitMessage: text("commit_message").notNull(),
     environment: Environment().default("DEVELOPMENT").notNull(),
     status: DeploymentStatus().default("PENDING").notNull(),
-    rolledBack: boolean("rolled_back").default(false).notNull(),
-    startedAt: timestamp("started_at").defaultNow(),
+    startedAt: timestamp("started_at").defaultNow().notNull(),
     completedAt: timestamp("completed_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().$onUpdateFn(() => new Date()).notNull(),

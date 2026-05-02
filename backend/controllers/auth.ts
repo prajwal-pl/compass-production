@@ -1,94 +1,89 @@
-// import { type RequestHandler } from 'express';
-// import { db } from '../lib/db';
-// import bcrypt from 'bcrypt';
+import { type RequestHandler } from 'express';
+import bcrypt from 'bcrypt';
+import { db } from '../lib/utils';
+import { users } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
-// export const registerHandler: RequestHandler = async (req, res) => {
-//     const { fullName, email, password } = req.body
-//     try {
-//         if (!fullName || !email || !password) {
-//             return res.status(400).send("Missing required fields")
-//         }
+export const registerHandler: RequestHandler = async (req, res) => {
+    const { fullName, email, password } = req.body
+    try {
+        if (!fullName || !email || !password) {
+            return res.status(400).send("Missing required fields")
+        }
 
-//         const existingUser = await db.
-//         if (existingUser) {
-//             return res.status(400).send("User with this email already exists")
-//         }
+        const existingUser = await db.select().from(users).where(eq(users.email, email));
+        if (existingUser) {
+            return res.status(400).send("User with this email already exists")
+        }
 
-//         const hashedPassword = await bcrypt.hash(password, 10)
+        const hashedPassword = await bcrypt.hash(password, 10)
 
-//         const newUser = await prisma.user.create({
-//             data: {
-//                 email,
-//                 fullName,
-//                 password: hashedPassword,
-//             }
-//         })
+        const newUser = await db.insert(users).values({
+            fullName,
+            email,
+            password: hashedPassword,
+        })
 
-//         console.log(newUser)
+        console.log(newUser)
 
-//         res.status(201).send("User registered successfully")
+        res.status(201).send("User registered successfully")
 
-//     } catch (error) {
-//         console.log("Register endpoint failed with error: ", error)
-//         res.status(500).send("Internal Server Error")
-//     }
-// }
+    } catch (error) {
+        console.log("Register endpoint failed with error: ", error)
+        res.status(500).send("Internal Server Error")
+    }
+}
 
-// export const loginHandler: RequestHandler = async (req, res) => {
-//     const { email, password } = req.body
-//     try {
-//         if (!email || !password) {
-//             return res.status(400).send("Missing required fields")
-//         }
+export const loginHandler: RequestHandler = async (req, res) => {
+    const { email, password } = req.body
+    try {
+        if (!email || !password) {
+            return res.status(400).send("Missing required fields")
+        }
 
-//         const user = await prisma.user.findUnique({
-//             where: { email }
-//         })
+        const result = await db.select().from(users).where(eq(users.email, email)).limit(1)
 
-//         if (!user) {
-//             return res.status(400).send("Invalid email or password")
-//         }
+        const user = result.flat()[0]
 
-//         const isPasswordValid = await bcrypt.compare(password, user.password)
+        if (!user) {
+            return res.status(400).send("Invalid email or password")
+        }
 
-//         if (!isPasswordValid) {
-//             return res.status(400).send("Invalid email or password")
-//         }
+        const isPasswordValid = await bcrypt.compare(password, user.password || "")
 
-//         res.status(200).send("Login successful")
+        if (!isPasswordValid) {
+            return res.status(400).send("Invalid email or password")
+        }
 
-//     } catch (error) {
-//         console.log("Login endpoint failed with error: ", error)
-//         res.status(500).send("Internal Server Error")
-//     }
-// }
+        res.status(200).send("Login successful")
 
-// export const profileHandler: RequestHandler = async (req, res) => {
-//     try {
-//         const userId = req.userId
+    } catch (error) {
+        console.log("Login endpoint failed with error: ", error)
+        res.status(500).send("Internal Server Error")
+    }
+}
 
-//         if (!userId) {
-//             return res.status(401).send("Unauthorized")
-//         }
+export const profileHandler: RequestHandler = async (req, res) => {
+    try {
+        const userId = req.userId
 
-//         const user = await prisma.user.findUnique({
-//             where: { id: userId },
-//             select: {
-//                 id: true,
-//                 email: true,
-//                 fullName: true,
-//             }
-//         })
+        if (!userId) {
+            return res.status(401).send("Unauthorized")
+        }
 
-//         if (!user) {
-//             return res.status(404).send("User not found")
-//         }
+        const result = await db.select().from(users).where(eq(users.id, userId)).limit(1)
 
-//         res.status(200).json(user)
-//     } catch (error) {
-//         console.log("Profile endpoint failed with error: ", error)
-//         res.status(500).send("Internal Server Error")
-//     }
-// }
+        const user = result.flat()[0]
 
-// export const googleAuthHandler: RequestHandler = async (req, res) => { }
+        if (!user) {
+            return res.status(404).send("User not found")
+        }
+
+        res.status(200).json(user)
+    } catch (error) {
+        console.log("Profile endpoint failed with error: ", error)
+        res.status(500).send("Internal Server Error")
+    }
+}
+
+export const googleAuthHandler: RequestHandler = async (req, res) => { }
