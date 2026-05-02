@@ -35,6 +35,7 @@ export const services = pgTable("services", {
     description: text("description"),
     userId: uuid("user_id").notNull().references(() => users.id),
     status: ServiceStatus().default("ACTIVE").notNull(),
+    repositoryUrl: text("repository_url"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().$onUpdateFn(() => new Date()).notNull(),
 })

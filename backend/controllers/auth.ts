@@ -1,6 +1,6 @@
 import { type RequestHandler } from 'express';
 import bcrypt from 'bcrypt';
-import { db } from '../lib/utils';
+import { db } from '../db/db';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
